@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CalendarDays, CheckCircle2, Loader2, PhoneCall, X } from 'lucide-react';
 import { getUtmParams } from '../utils/utm';
 import { getJourneyAttribution } from '../utils/attribution';
-import { trackEvent } from '../utils/analytics';
+import { armThankYouConversion, prepareEnhancedConversion, trackEvent } from '../utils/analytics';
 
-export default function ChatCallbackCard({ sessionId, captured = false, onCaptured, onDismiss }) {
+export default function ChatCallbackCard({ sessionId, captured = false, onCaptured, onDismiss, onSubmitted }) {
   const cardRef = useRef(null);
   const [form, setForm] = useState({ name: '', phone: '', email: '' });
   const [submitting, setSubmitting] = useState(false);
@@ -55,9 +55,16 @@ export default function ChatCallbackCard({ sessionId, captured = false, onCaptur
         setError(body.error || 'Could not save your callback request. Please call the showroom.');
         return;
       }
-      setSubmitted(true);
+      const email = form.email.trim();
+      await prepareEnhancedConversion?.(email);
       trackEvent('lead_captured', { source: 'chat_callback' });
+      armThankYouConversion?.();
       onCaptured?.(body.lead_id);
+      if (onSubmitted) {
+        onSubmitted();
+        return;
+      }
+      setSubmitted(true);
     } catch {
       setError('Could not save your callback request. Please call the showroom.');
     } finally {

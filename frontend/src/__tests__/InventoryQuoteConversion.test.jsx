@@ -3,7 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import InventoryBrowse from '../pages/InventoryBrowse';
 
 const { analyticsTrackEvent } = vi.hoisted(() => ({ analyticsTrackEvent: vi.fn() }));
-vi.mock('../utils/analytics', () => ({ trackEvent: analyticsTrackEvent }));
+vi.mock('../utils/analytics', async () => {
+  const actual = await vi.importActual('../utils/analytics');
+  return { ...actual, trackEvent: analyticsTrackEvent };
+});
 
 const home = {
   id: '43372',

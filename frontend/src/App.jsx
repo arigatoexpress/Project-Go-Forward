@@ -99,6 +99,7 @@ const Financing = lazy(() => import('./pages/Financing'));
 const FAQ = lazy(() => import('./pages/FAQ'));
 const Warranty = lazy(() => import('./pages/Warranty'));
 const Delivery = lazy(() => import('./pages/Delivery'));
+const ThankYou = lazy(() => import('./pages/ThankYou'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
@@ -112,7 +113,7 @@ const YourPasskeys = lazy(() => import('./pages/YourPasskeys'));
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
 const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team', 'passkeys']);
-const NOINDEX_PAGE_KEYS = new Set([...ADMIN_PAGE_KEYS, 'staff-sign-in', 'hub', 'not-found']);
+const NOINDEX_PAGE_KEYS = new Set([...ADMIN_PAGE_KEYS, 'staff-sign-in', 'hub', 'not-found', 'thank-you']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -528,6 +529,7 @@ function pageFromPath(path) {
   if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
   if (p === '/privacy' || p === '/privacy/' || p === '/legal' || p === '/legal/') return 'privacy';
   if (p === '/terms' || p === '/terms/') return 'terms';
+  if (p === '/thank-you' || p === '/thank-you/') return 'thank-you';
   if (p.startsWith('/contact')) return 'contact';
   if (p.startsWith('/appointments')) return 'appointments';
   if (p.startsWith('/about')) return 'about';
@@ -715,6 +717,7 @@ function App() {
   }, [setDarkMode]);
 
   const [appointmentHandoff, setAppointmentHandoff] = useState(null);
+  const [thankYouHandoff, setThankYouHandoff] = useState(null);
   const isStandaloneMode = pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
 
   // A delegated listener covers every public click-to-call CTA, including
@@ -1087,6 +1090,7 @@ function App() {
       inventory: HOME_TITLE,
       chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
       contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
+      'thank-you': `Thank you | ${BUSINESS_NAME}`,
       appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
       privacy: `Privacy Policy | ${BUSINESS_NAME}`,
       terms: `Terms of Use | ${BUSINESS_NAME}`,
@@ -1236,6 +1240,13 @@ function App() {
   const startAppointmentHandoff = (handoff) => {
     setAppointmentHandoff(handoff);
     navigateTo('appointments', { preserveAppointmentHandoff: true });
+  };
+
+  const openThankYou = (handoff) => {
+    setThankYouHandoff(handoff || null);
+    setIsMobileMenuOpen(false);
+    window.scrollTo({ top: 0 });
+    navigatePath('/thank-you');
   };
 
   // Admin PIN handlers
@@ -1831,6 +1842,7 @@ function App() {
             <Contact
               onBack={() => navigateTo('inventory')}
               onBookAppointment={startAppointmentHandoff}
+              onSubmitted={openThankYou}
             />
           </Suspense>
         </ErrorBoundary>
@@ -1948,6 +1960,26 @@ function App() {
     );
   }
 
+  if (activePage === 'thank-you') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        <SkipLink />
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="thank-you">
+          <Suspense fallback={<PageLoader />}>
+            <ThankYou
+              handoff={thankYouHandoff}
+              onHome={() => navigateTo('inventory')}
+              onBookAppointment={startAppointmentHandoff}
+            />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
   if (activePage === 'not-found') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
@@ -2017,6 +2049,7 @@ function App() {
                 navigateTo('adstudio');
               } : undefined}
               onBookAppointment={startAppointmentHandoff}
+              onLeadSubmitted={openThankYou}
             />
           </Suspense>
         </ErrorBoundary>
@@ -2148,6 +2181,7 @@ function App() {
                 localStorage.setItem(callbackStorageKey, 'captured');
                 setChatCallbackCaptured(true);
               }}
+              onSubmitted={() => openThankYou(null)}
             />
           )}
 

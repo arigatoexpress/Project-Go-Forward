@@ -13,7 +13,7 @@ import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import { isUnpricedListing, publicPriceText } from '../utils/publicPrice';
 import { getUtmParams } from '../utils/utm';
-import { trackEvent } from '../utils/analytics';
+import { armThankYouConversion, prepareEnhancedConversion, trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
 import { getJourneyAttribution } from '../utils/attribution';
 import {
@@ -709,6 +709,7 @@ export default function InventoryBrowse({
   onAskTex,
   onCreateAd,
   onBookAppointment,
+  onLeadSubmitted,
   pathname,
 }) {
   // False once the server hero errors or never loads, so the original
@@ -1592,6 +1593,7 @@ export default function InventoryBrowse({
           type={leadFormType}
           onClose={() => { setShowLeadForm(false); setLeadFormHome(null); }}
           onBookAppointment={onBookAppointment}
+          onSubmitted={onLeadSubmitted}
         />
       )}
       </div>
@@ -2707,7 +2709,7 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
 
 
 // ─── Lead Capture Form Modal ───
-export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
+export function LeadCaptureForm({ home, type, onClose, onBookAppointment, onSubmitted }) {
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -2762,8 +2764,24 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         return;
       }
       setPersistedLeadId(result.lead_id || '');
-      setSubmitted(true);
+      await prepareEnhancedConversion?.(normalizedEmail);
       trackEvent('lead_captured', { home: home.model_name, home_id: getHomeIdentifier(home), type: intent });
+      armThankYouConversion?.();
+      if (onSubmitted) {
+        onSubmitted({
+          name: formData.name,
+          phone: formData.phone,
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
+          notes: `Interested in ${home.model_name}.${formData.message.trim() ? ` ${formData.message.trim()}` : ''}`,
+          leadId: result.lead_id || '',
+          source: `inventory_${intent}_handoff`,
+          home: home.model_name,
+          homeId: getHomeIdentifier(home),
+          intent,
+        });
+        return;
+      }
+      setSubmitted(true);
     } catch {
       setError(`Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
     } finally {

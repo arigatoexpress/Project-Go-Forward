@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, Loader2 } from 'lucide-react';
 import { BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import { getUtmParams } from '../utils/utm';
-import { trackEvent } from '../utils/analytics';
+import { armThankYouConversion, prepareEnhancedConversion, trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
 import { getJourneyAttribution } from '../utils/attribution';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { safeUserMessage, extractErrorMessage } from '../utils/apiError';
 
-const Contact = ({ onBack, onBookAppointment }) => {
+const Contact = ({ onBack, onBookAppointment, onSubmitted }) => {
     const [submitted, setSubmitted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
@@ -46,8 +46,22 @@ const Contact = ({ onBack, onBookAppointment }) => {
             const data = await resp.json();
             if (data.success) {
                 setPersistedLeadId(data.lead_id || '');
-                setSubmitted(true);
+                await prepareEnhancedConversion?.(normalizedEmail);
                 trackEvent('lead_captured', { source: 'contact', type: 'contact' });
+                armThankYouConversion?.();
+                if (onSubmitted) {
+                    onSubmitted({
+                        name: formData.name,
+                        phone: formData.phone,
+                        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+                        notes: formData.message,
+                        leadId: data.lead_id || '',
+                        source: 'contact_handoff',
+                        intent: 'contact',
+                    });
+                    return;
+                }
+                setSubmitted(true);
             } else {
                 setSubmitError(safeUserMessage(extractErrorMessage(data), 'Something went wrong. Please try again.'));
             }

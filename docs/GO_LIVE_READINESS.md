@@ -73,11 +73,13 @@ so each auto-serves on merge.
    - `PUBLIC_SITE_URL=https://www.texashomeoutlet.com` (fixes broken email download links)
    - `OG_IMAGE_URL=https://www.texashomeoutlet.com/og-card.png` (the card already ships —
      this turns on social-share previews)
-5. **Set exactly one measurement env var** on Cloud Run: `GA4_MEASUREMENT_ID`
+5. **Turn on measurement only with an explicit flag.** Set
+   `THO_GA4_TAGS_ENABLED=true` and exactly one of `GA4_MEASUREMENT_ID`
    (`G-` plus 4–15 uppercase letters or digits) or `GTM_CONTAINER_ID`
-   (`GTM-` plus 4–10 uppercase letters or digits). Do not set both, and do not
-   invent an ID. Until one valid value is present, the homepage HTML has no
-   Google tag. See `docs/runbooks/google-growth-activation.md`.
+   (`GTM-` plus 4–10 uppercase letters or digits). Do not set both IDs, and do
+   not invent an ID. An ID with the flag off or unset leaves the homepage
+   HTML with no Google tag. Ads conversions and enhanced conversions have
+   their own default-off flags. See `docs/runbooks/google-growth-activation.md`.
 
 ### Tier 3 — Quick verifies / decisions (~30 min)
 6. **Bind `SENTRY_DSN`** (create Sentry project → secret → `--update-secrets`). Error

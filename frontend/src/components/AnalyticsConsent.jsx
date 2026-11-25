@@ -13,6 +13,16 @@ function savedChoice() {
   }
 }
 
+function enhancedConversionsEnabled() {
+  try {
+    const raw = document.getElementById('tho-analytics-config')?.textContent;
+    if (!raw) return false;
+    return JSON.parse(raw).enhanced_conversions === true;
+  } catch {
+    return false;
+  }
+}
+
 function saveChoice(value) {
   try {
     localStorage.setItem(CONSENT_KEY, value);
@@ -73,7 +83,11 @@ export default function AnalyticsConsent() {
           <h2 className="text-sm font-bold sm:text-base">Your privacy choices</h2>
           <p className="mt-1 text-xs leading-relaxed text-[var(--cp-muted)] sm:text-sm">
             We use optional analytics and ad measurement to understand which homes and ads help shoppers. We never send your name,
-            email, phone number, or message to analytics providers. The site works normally if you decline.
+            phone number, or message to analytics providers.
+            {enhancedConversionsEnabled()
+              ? ' If you allow measurement, a conversion can include a one-way hash of your email. We never send the email address itself.'
+              : ' We never send your email address to analytics providers.'}
+            {' '}The site works normally if you decline.
           </p>
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => decide('denied')} className="cp-btn-outline px-4 py-2 text-sm">

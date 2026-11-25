@@ -4,7 +4,10 @@ import Contact from '../pages/Contact';
 import { LeadCaptureForm } from '../pages/InventoryBrowse';
 
 const { trackEvent } = vi.hoisted(() => ({ trackEvent: vi.fn() }));
-vi.mock('../utils/analytics', () => ({ trackEvent }));
+vi.mock('../utils/analytics', async () => {
+  const actual = await vi.importActual('../utils/analytics');
+  return { ...actual, trackEvent };
+});
 
 const failure = 'Unable to accept your request. Please try again or call us directly.';
 

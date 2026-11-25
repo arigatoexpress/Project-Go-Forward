@@ -152,6 +152,17 @@ PUBLIC_ROUTES = {
         "Town pages around the Huffman showroom, each with its county and direction "
         "from that lot, plus links to the other towns and the home inventory.",
     ),
+    "/thank-you": (
+        f"Thank you | {business_name()}",
+        f"We received your request. {business_name()} in {_CITY_STATE} will follow up. "
+        f"Call {business_phone()}.",
+    ),
+}
+
+# Guessable thank-you URLs that used to 404. They are not separate pages.
+_THANK_YOU_ALIASES = {
+    "/thanks": "/thank-you",
+    "/contact/thank-you": "/thank-you",
 }
 
 # Shared copy keeps server-rendered and React legal pages identical.
@@ -821,12 +832,12 @@ def _shell() -> str:
 #
 # Snippets are emitted server-side here (this module already owns <head>
 # injection for every SPA navigation) so an operator activates a tag at Cloud
-# Run RUNTIME with `--update-env-vars` and ZERO rebuild. Each tag is a strict
-# no-op until its ID env var is set AND matches a strict format: absent or
-# malformed -> no markup, no CSP change, head byte-identical to today. IDs are
-# NEVER hardcoded. Pixels load only on indexable pages (see _head_block: the
-# snippet is appended only when noindex is False), so they never fire on
-# operator/admin/CRM/404 surfaces.
+# Run RUNTIME with `--update-env-vars` and ZERO rebuild. Google measurement and
+# Ads conversion tags stay off unless the matching flag is explicitly true AND
+# the ID matches a strict format. A set or malformed ID with the flag off or
+# false emits no markup and no CSP change. IDs are NEVER hardcoded. Pixels load
+# only on indexable pages (see _head_block), plus the noindex /thank-you
+# conversion page, so they never fire on operator/admin/CRM/404 surfaces.
 #
 # OPERATOR/LEGAL GATE: IDs remain runtime configuration, but the browser now
 # defaults every storage category to denied and does not fetch a third-party
@@ -838,6 +849,16 @@ _GA4_RE = re.compile(r"^G-[A-Z0-9]{4,15}$")
 _GTM_RE = re.compile(r"^GTM-[A-Z0-9]{4,10}$")
 _META_PIXEL_RE = re.compile(r"^\d{8,20}$")
 _TIKTOK_PIXEL_RE = re.compile(r"^[A-Za-z0-9]{16,30}$")
+# AW- plus digits. Too-short and non-digit values fail closed.
+_ADS_CONVERSION_ID_RE = re.compile(r"^AW-\d{4,20}$")
+# Ads UI conversion labels. Slashes, spaces, and markup fail closed.
+_ADS_LABEL_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_ADS_LABEL_ENVS = (
+    "GOOGLE_ADS_CONVERSION_LABEL_LEAD",
+    "GOOGLE_ADS_CONVERSION_LABEL_CALL",
+    "GOOGLE_ADS_CONVERSION_LABEL_THANKYOU",
+)
+_FLAG_TRUE = frozenset({"1", "true", "yes", "on"})
 
 _ANALYTICS_IDS = (
     ("GA4_MEASUREMENT_ID", _GA4_RE),
@@ -869,7 +890,29 @@ _ANALYTICS_CSP = {
         "script-src": ("https://analytics.tiktok.com",),
         "connect-src": ("https://analytics.tiktok.com",),
     },
+    "GOOGLE_ADS_CONVERSION_ID": {
+        "script-src": (
+            "https://www.googletagmanager.com",
+            "https://www.googleadservices.com",
+            "https://googleads.g.doubleclick.net",
+            "https://www.google.com",
+        ),
+        "connect-src": (
+            "https://www.google.com",
+            "https://www.googleadservices.com",
+            "https://googleads.g.doubleclick.net",
+            "https://stats.g.doubleclick.net",
+            "https://pagead2.googlesyndication.com",
+            "https://www.google-analytics.com",
+            "https://www.googletagmanager.com",
+        ),
+    },
 }
+
+
+def _flag_enabled(name: str) -> bool:
+    """True only for an explicit opt-in. Unset, blank, and false stay off."""
+    return (os.environ.get(name) or "").strip().lower() in _FLAG_TRUE
 
 
 def _clean_id(env_name: str, pattern: re.Pattern) -> str | None:
@@ -894,7 +937,10 @@ def _analytics_ids() -> dict:
     """
     global _logged_dual_google_loader
     out = {}
+    ga4_tags = _flag_enabled("THO_GA4_TAGS_ENABLED")
     for env_name, pattern in _ANALYTICS_IDS:
+        if env_name in {"GA4_MEASUREMENT_ID", "GTM_CONTAINER_ID"} and not ga4_tags:
+            continue
         val = _clean_id(env_name, pattern)
         if val:
             out[env_name] = val
@@ -906,6 +952,18 @@ def _analytics_ids() -> dict:
             )
             _logged_dual_google_loader = True
         del out["GTM_CONTAINER_ID"]
+    if _flag_enabled("THO_ADS_CONVERSIONS_ENABLED"):
+        conversion_id = _clean_id("GOOGLE_ADS_CONVERSION_ID", _ADS_CONVERSION_ID_RE)
+        if conversion_id:
+            out["GOOGLE_ADS_CONVERSION_ID"] = conversion_id
+            for env_name in _ADS_LABEL_ENVS:
+                label = _clean_id(env_name, _ADS_LABEL_RE)
+                if label:
+                    out[env_name] = label
+            # Enhanced conversions are an Ads feature. The flag alone does not
+            # hash or send anything unless a valid conversion ID is also on.
+            if _flag_enabled("THO_ENHANCED_CONVERSIONS_ENABLED"):
+                out["enhanced_conversions"] = True
     return out
 
 
@@ -941,7 +999,7 @@ w.__THO_ANALYTICS_CONFIGURED__=true;
 w.dataLayer=w.dataLayer||[];
 w.gtag=w.gtag||function(){w.dataLayer.push(arguments);};
 var denied={analytics_storage:'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'};
-// Measurement consent never implies permission for personalized advertising.
+// Housing advertisers do not turn on personalized ads after measurement consent.
 var granted={analytics_storage:'granted',ad_storage:'granted',ad_user_data:'granted',ad_personalization:'denied'};
 w.gtag('consent','default',denied);
 function persistCampaign(){
@@ -972,8 +1030,13 @@ function restoreCampaignQuery(){
 persistCampaign();
 function add(src){var s=d.createElement('script');s.async=true;s.src=src;(d.head||d.documentElement).appendChild(s);}
 function loadGoogle(){
- var ga=c.GA4_MEASUREMENT_ID,gtm=c.GTM_CONTAINER_ID;
- if(ga){add('https://www.googletagmanager.com/gtag/js?id='+ga);w.gtag('js',new Date());w.gtag('config',ga,{send_page_view:false,page_location:w.location.href});}
+ var ga=c.GA4_MEASUREMENT_ID,gtm=c.GTM_CONTAINER_ID,aw=c.GOOGLE_ADS_CONVERSION_ID;
+ if(ga||aw){
+  add('https://www.googletagmanager.com/gtag/js?id='+(ga||aw));
+  w.gtag('js',new Date());
+  if(ga)w.gtag('config',ga,{send_page_view:false,page_location:w.location.href});
+  if(aw)w.gtag('config',aw,{send_page_view:false});
+ }
  if(gtm){w.dataLayer.push({'gtm.start':new Date().getTime(),event:'gtm.js'});add('https://www.googletagmanager.com/gtm.js?id='+gtm);}
 }
 function loadMeta(){var id=c.META_PIXEL_ID;if(!id)return;
@@ -1001,10 +1064,12 @@ if(pref==='granted')w.__THO_ENABLE_ANALYTICS__();
 def _analytics_head() -> str:
     """Consent-gated loader for whichever analytics IDs are validly set.
 
-    Operators set exactly one Cloud Run runtime env var:
-    ``GA4_MEASUREMENT_ID`` (``G-`` plus 4–15 uppercase letters or digits) or
-    ``GTM_CONTAINER_ID`` (``GTM-`` plus 4–10 uppercase letters or digits).
-    Unset, blank, and malformed values emit no tag and no measurement ID.
+    Google tags also require an explicit flag. ``THO_GA4_TAGS_ENABLED`` must
+    be true before ``GA4_MEASUREMENT_ID`` (``G-`` plus 4–15 uppercase letters
+    or digits) or ``GTM_CONTAINER_ID`` (``GTM-`` plus 4–10 uppercase letters or
+    digits) is emitted. ``THO_ADS_CONVERSIONS_ENABLED`` must be true before
+    ``GOOGLE_ADS_CONVERSION_ID`` (``AW-`` plus 4–20 digits) is emitted.
+    Unset, blank, false, and malformed values emit no tag and no ID.
     Do not hardcode an ID.
 
     Emits an inert JSON config block plus a first-party external bootstrap
@@ -1114,6 +1179,7 @@ def _head_block(
     noindex=False,
     preload_image=None,
     og_image_alt=None,
+    include_analytics=None,
 ):
     e = html.escape
     parts = [
@@ -1160,8 +1226,10 @@ def _head_block(
         # out of the JSON-LD block (< is valid JSON, inert in HTML).
         payload = json.dumps(block, ensure_ascii=False).replace("<", "\\u003c")
         parts.append('<script type="application/ld+json">' + payload + "</script>")
-    # Analytics/ad pixels: indexable pages only (never noindex admin/CRM/404).
-    if not noindex:
+    # Analytics/ad pixels: indexable pages, plus an explicit conversion page.
+    # noindex admin/CRM/404 surfaces stay dark.
+    emit_analytics = (not noindex) if include_analytics is None else include_analytics
+    if emit_analytics:
         snippet = _analytics_head()
         if snippet:
             parts.append(snippet)
@@ -1747,6 +1815,20 @@ def _crawlable_home_gone_block() -> str:
     )
 
 
+def _crawlable_thank_you_block() -> str:
+    """Real thank-you document for non-JS clients. The conversion fires in the SPA."""
+    e = html.escape
+    return (
+        "<main>"
+        "<h1>Thank you</h1>"
+        f"<p>We received your request. {e(business_name())} will follow up.</p>"
+        f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
+        ' · <a href="/inventory">Browse homes</a>'
+        ' · <a href="/contact">Contact</a></p>'
+        "</main>"
+    )
+
+
 def _crawlable_contact_block() -> str:
     # Server-rendered NAP + h1 so /contact is not an empty page to non-JS crawlers
     # (the strongest local-relevance/NAP signal on the site).
@@ -2321,6 +2403,9 @@ def _render_spa_response(full_path: str) -> Response | None:
     vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower()) or _LEGAL_REDIRECTS.get(path.lower())
     if vendor_target:
         return RedirectResponse(vendor_target, status_code=301)
+    thank_you_target = _THANK_YOU_ALIASES.get(path.lower())
+    if thank_you_target:
+        return RedirectResponse(thank_you_target, status_code=301)
 
     # 3. One URL per page: trailing-slash (or doubled-slash) and case variants of
     #    public routes 301 to the canonical no-slash, lowercase form.
@@ -2622,12 +2707,15 @@ def _render_spa_response(full_path: str) -> Response | None:
         if path == "/faq":
             jsonld.append(_faqpage_jsonld())
         lcp_href = _inventory_lcp_href() if path in ("/", "/inventory") else None
+        thank_you = path == "/thank-you"
         head = _head_block(
             title,
             description,
             base + (path if path != "/" else "/"),
             jsonld=jsonld,
             preload_image=lcp_href,
+            noindex=thank_you,
+            include_analytics=True if thank_you else None,
         )
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block(hub=path == "/inventory")
@@ -2649,6 +2737,8 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_delivery_block()
         elif path == "/chat":
             body = _crawlable_chat_block()
+        elif path == "/thank-you":
+            body = _crawlable_thank_you_block()
         elif path in ("/privacy", "/terms"):
             body = _crawlable_legal_block(path.lstrip("/"))
         else:
