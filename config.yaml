@@ -252,6 +252,17 @@ feature_flags:
   # Env override: FF_ESIGN_AUTO_SEND=1.
   ESIGN_AUTO_SEND: false
 
+  # New leads get a default owner so none sit unassigned (COD-254). Leave false
+  # until the owner says yes. Assignee comes from `leads.default_assignee` below
+  # or env THO_LEAD_DEFAULT_ASSIGNEE. Env override: FF_LEAD_DEFAULT_ASSIGNMENT=1.
+  LEAD_DEFAULT_ASSIGNMENT: false
+
+# Lead routing (COD-254). Used only when feature flag LEAD_DEFAULT_ASSIGNMENT is
+# on. `default_assignee` is the escalation owner who receives every new lead
+# that arrives without an owner; env THO_LEAD_DEFAULT_ASSIGNEE overrides it.
+leads:
+  default_assignee: "mark@texashomeoutlet.com"
+
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
 # PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be
