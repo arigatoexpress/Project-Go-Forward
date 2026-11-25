@@ -240,7 +240,7 @@ const ADS_CONFIG = {
   GOOGLE_ADS_CONVERSION_ID: 'AW-1234567890',
   GOOGLE_ADS_CONVERSION_LABEL_LEAD: 'leadLabel01',
   GOOGLE_ADS_CONVERSION_LABEL_CALL: 'callLabel01',
-  GOOGLE_ADS_CONVERSION_LABEL_THANKYOU: 'thanksLabel1',
+  GOOGLE_ADS_CONVERSION_LABEL_THANKYOU: 'thank-you',
   enhanced_conversions: true,
 };
 
@@ -356,7 +356,7 @@ describe('ads conversions', () => {
     expect(views).toHaveLength(1);
     expect(views[0][2]).toMatchObject({ page: 'thank-you', page_path: '/thank-you' });
     expect(conversions).toEqual([
-      ['event', 'conversion', { send_to: 'AW-1234567890/thanksLabel1' }],
+      ['event', 'conversion', { send_to: 'AW-1234567890/thank-you' }],
     ]);
     expect(beacon).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem('tho_thank_you_pending')).toBeNull();
