@@ -564,6 +564,15 @@ class LeadRecord(BaseModel):
     first_contacted_by: str | None = None
     status_changed_at: str | None = None
     status_changed_by: str | None = None
+    first_contact_outcome: (
+        Literal["called", "texted", "emailed", "left_voicemail", "no_answer"] | None
+    ) = None
+    last_contact_outcome: (
+        Literal["called", "texted", "emailed", "left_voicemail", "no_answer"] | None
+    ) = None
+    last_contact_at: str | None = None
+    last_contact_by: str | None = None
+    contact_attempts: int = Field(default=0, ge=0)
 
     priority: str | None = None
     assigned_to: str | None = None

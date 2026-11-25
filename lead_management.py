@@ -19,6 +19,14 @@ logger = logging.getLogger(__name__)
 
 VALID_LEAD_STATUSES = frozenset({"new", "contacted", "qualified", "converted", "archived"})
 CONTACTED_LEAD_STATUSES = frozenset({"contacted", "qualified", "converted"})
+# One-tap "log first contact" outcomes (COD-254). Every outcome is a real
+# response attempt, so the first one starts the speed-to-lead clock. Only the
+# outcomes where the person was actually reached move a new lead to contacted;
+# a voicemail or no answer keeps the lead in the "answer these people" queue.
+CONTACT_OUTCOMES = frozenset({"called", "texted", "emailed", "left_voicemail", "no_answer"})
+REACHED_CONTACT_OUTCOMES = frozenset({"called", "texted", "emailed"})
+# A second identical tap inside this window is a double-tap, not a new attempt.
+CONTACT_LOG_DEBOUNCE_SECONDS = 15
 
 
 def normalize_phone(phone: str | None) -> str | None:
@@ -69,6 +77,12 @@ class Lead:
     first_contacted_by: str | None = None
     status_changed_at: str | None = None
     status_changed_by: str | None = None
+    # Contact attempts logged from the staff queue (COD-254).
+    first_contact_outcome: str | None = None
+    last_contact_outcome: str | None = None
+    last_contact_at: str | None = None
+    last_contact_by: str | None = None
+    contact_attempts: int = 0
 
     # Triage / routing (populated by Mira or CRM operators)
     priority: str | None = None  # "low", "medium", "high"
@@ -177,6 +191,80 @@ def apply_lead_status_transition(
     return True
 
 
+def apply_contact_outcome(
+    lead: Lead,
+    outcome: str,
+    *,
+    actor: str,
+    now: str | None = None,
+) -> bool:
+    """Record one staff contact attempt in memory. Returns False for a double-tap.
+
+    - Every outcome counts as a response attempt: the first one sets the
+      immutable ``first_contacted_at`` clock (never rewritten afterwards).
+    - called / texted / emailed move a ``new`` lead to ``contacted``.
+    - left_voicemail / no_answer keep the status, so the lead stays in the queue.
+    """
+    if outcome not in CONTACT_OUTCOMES:
+        raise ValueError(f"Invalid contact outcome: {outcome!r}")
+    timestamp = now or datetime.now(UTC).replace(tzinfo=None).isoformat()
+    previous_at = getattr(lead, "last_contact_at", None)
+    if (
+        previous_at
+        and getattr(lead, "last_contact_outcome", None) == outcome
+        and getattr(lead, "last_contact_by", None) == actor
+    ):
+        try:
+            gap = datetime.fromisoformat(timestamp) - datetime.fromisoformat(previous_at)
+            if timedelta(0) <= gap < timedelta(seconds=CONTACT_LOG_DEBOUNCE_SECONDS):
+                return False
+        except ValueError:
+            pass
+    lead.contact_attempts = int(getattr(lead, "contact_attempts", 0) or 0) + 1
+    lead.last_contact_outcome = outcome
+    lead.last_contact_at = timestamp
+    lead.last_contact_by = actor
+    if not lead.first_contacted_at:
+        lead.first_contacted_at = timestamp
+        lead.first_contacted_by = actor
+        lead.first_contact_outcome = outcome
+    if outcome in REACHED_CONTACT_OUTCOMES and lead.status == "new":
+        apply_lead_status_transition(lead, "contacted", actor=actor, now=timestamp)
+    return True
+
+
+def default_lead_assignee() -> str | None:
+    """Configured owner for new unassigned leads, or None when switched off.
+
+    Off unless feature flag ``LEAD_DEFAULT_ASSIGNMENT`` is on (config.yaml
+    ``feature_flags`` or env ``FF_LEAD_DEFAULT_ASSIGNMENT``). The assignee comes
+    from env ``THO_LEAD_DEFAULT_ASSIGNEE`` or config.yaml ``leads.default_assignee``;
+    no staff identity lives in code.
+    """
+    import os
+
+    from config_loader import get_config
+    from tools.feature_flags import is_enabled
+
+    if not is_enabled("LEAD_DEFAULT_ASSIGNMENT", default=False):
+        return None
+    value = (os.environ.get("THO_LEAD_DEFAULT_ASSIGNEE") or "").strip()
+    if not value:
+        value = str(((get_config() or {}).get("leads") or {}).get("default_assignee") or "").strip()
+    return value[:120] or None
+
+
+def apply_default_assignment(lead: Lead) -> bool:
+    """Assign a new lead to the configured default owner when nobody owns it."""
+    if (lead.assigned_to or "").strip():
+        return False
+    assignee = default_lead_assignee()
+    if not assignee:
+        return False
+    lead.assigned_to = assignee
+    return True
+
+
 class LeadManager:
     """Manages lead storage and retrieval"""
 
@@ -204,6 +292,11 @@ class LeadManager:
     async def create_lead(self, lead: Lead) -> Lead:
         """Create a new lead"""
         lead.phone = normalize_phone(lead.phone)
+        try:
+            if apply_default_assignment(lead):
+                logger.info("lead_default_assigned", extra={"lead_id": lead.lead_id})
+        except Exception:  # assignment must never block lead capture
+            logger.exception("lead_default_assignment_failed")
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _save():
@@ -259,6 +352,37 @@ class LeadManager:
         # recycles the instance (see database/rpc_timeout.py).
         return await asyncio.wait_for(
             asyncio.to_thread(_transition, transaction),
+            timeout=FIRESTORE_TRANSACTION_TIMEOUT,
+        )
+
+    async def log_contact_outcome(
+        self,
+        lead_id: str,
+        outcome: str,
+        *,
+        actor: str,
+    ) -> tuple[Lead | None, str | None, bool]:
+        """Persist one contact attempt atomically. Returns (lead, previous_status, recorded)."""
+        if outcome not in CONTACT_OUTCOMES:
+            raise ValueError(f"Invalid contact outcome: {outcome!r}")
+        doc_ref = self.db.collection(self.collection_name).document(lead_id)
+        transaction = self.db.transaction()
+
+        @firestore.transactional
+        def _log(txn):
+            snapshot = doc_ref.get(transaction=txn, timeout=FIRESTORE_RPC_TIMEOUT)
+            if not snapshot.exists:
+                return None, None, False
+            lead = Lead.from_dict(snapshot.to_dict())
+            previous_status = lead.status
+            recorded = apply_contact_outcome(lead, outcome, actor=actor)
+            if recorded:
+                lead.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
+                txn.set(doc_ref, lead.to_dict(), merge=True)
+            return lead, previous_status, recorded
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(_log, transaction),
             timeout=FIRESTORE_TRANSACTION_TIMEOUT,
         )
 

@@ -1,0 +1,23 @@
+{
+  "displayName": "THO leads: reachable lead with no first contact for 2+ hours (daily 6:45 AM MT)",
+  "documentation": {
+    "content": "COD-254. The daily scheduled query tho-lead-sla-daily found reachable leads still marked new with no first contact after 2 hours, or the lead mirror went stale. Open https://www.texashomeoutlet.com/staff, choose Answer a lead, and tap the outcome after each call or text. History: tho_analytics.lead_sla_daily. Runbook: ops/lead_sla/README.md.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "tho-lead-sla-daily reported LEAD_SLA_BREACH",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"bigquery_dts_config\" AND severity>=ERROR AND jsonPayload.message:\"LEAD_SLA_BREACH\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "86400s" },
+    "autoClose": "86400s"
+  },
+  "severity": "WARNING",
+  "enabled": false,
+  "notificationChannels": ["projects/tho-ai-agent/notificationChannels/11542629982939516998"]
+}

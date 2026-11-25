@@ -74,6 +74,7 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "inventory.tour_clear",
     "lead.update",
     "lead.lifecycle_transition",
+    "lead.contact_logged",
     "crm_task.create",
     "crm_task.update",
     "email.send",
