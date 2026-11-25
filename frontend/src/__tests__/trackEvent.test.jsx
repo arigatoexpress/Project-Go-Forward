@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { trackEvent } from '../pages/InventoryBrowse';
-import { attachPhoneClickTracking, isPublicAnalyticsPath } from '../utils/analytics';
+import { createHash } from 'node:crypto';
+import { trackEvent as browseTrackEvent } from '../pages/InventoryBrowse';
+import {
+  armThankYouConversion,
+  attachPhoneClickTracking,
+  consumeThankYouConversion,
+  isPublicAnalyticsPath,
+  prepareEnhancedConversion,
+  trackEvent,
+} from '../utils/analytics';
 
 // Regression guard: analytics events must go to the dedicated /api/analytics
 // sink (via sendBeacon), NOT /api/contact — which validated name/phone and
@@ -11,6 +19,7 @@ describe('trackEvent', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
+    document.getElementById('tho-analytics-config')?.remove();
     sessionStorage.clear();
     window.history.replaceState({}, '', '/');
     delete window.gtag;
@@ -21,7 +30,7 @@ describe('trackEvent', () => {
     const beacon = vi.fn(() => true);
     vi.stubGlobal('navigator', { sendBeacon: beacon });
 
-    trackEvent('lead_captured', { home: 'Nassau' });
+    browseTrackEvent('lead_captured', { home: 'Nassau' });
 
     expect(beacon).toHaveBeenCalledTimes(1);
     const [url, blob] = beacon.mock.calls[0];
@@ -63,7 +72,7 @@ describe('trackEvent', () => {
     detach();
 
     expect(beacon).toHaveBeenCalledTimes(1);
-    expect(gtag).toHaveBeenCalledWith('event', 'phone_clicked', {
+    expect(gtag).toHaveBeenCalledWith('event', 'click_to_call', {
       page_path: '/inventory',
       placement: 'public_phone_link',
       tho_event: 'phone_clicked',
@@ -224,6 +233,186 @@ describe('trackEvent', () => {
       page_path: '/inventory',
       tho_event: 'page_viewed',
     });
+  });
+});
+
+const ADS_CONFIG = {
+  GOOGLE_ADS_CONVERSION_ID: 'AW-1234567890',
+  GOOGLE_ADS_CONVERSION_LABEL_LEAD: 'leadLabel01',
+  GOOGLE_ADS_CONVERSION_LABEL_CALL: 'callLabel01',
+  GOOGLE_ADS_CONVERSION_LABEL_THANKYOU: 'thank-you',
+  enhanced_conversions: true,
+};
+
+function installTagConfig(config) {
+  document.getElementById('tho-analytics-config')?.remove();
+  const el = document.createElement('script');
+  el.id = 'tho-analytics-config';
+  el.type = 'application/json';
+  el.textContent = JSON.stringify(config);
+  document.head.appendChild(el);
+}
+
+function sha256Hex(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+describe('ads conversions', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.getElementById('tho-analytics-config')?.remove();
+    document.body.innerHTML = '';
+    sessionStorage.clear();
+    delete window.gtag;
+    delete window.__THO_ANALYTICS_CONSENT__;
+  });
+
+  it('fires generate_lead and the lead conversion once', () => {
+    installTagConfig(ADS_CONFIG);
+    const gtag = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: () => true });
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+
+    trackEvent('lead_captured', {
+      source: 'contact',
+      type: 'contact',
+      email: 'buyer@example.com',
+      phone: '2813243020',
+      name: 'Buyer',
+    });
+
+    const leads = gtag.mock.calls.filter((call) => call[1] === 'generate_lead');
+    const conversions = gtag.mock.calls.filter((call) => call[1] === 'conversion');
+    expect(leads).toHaveLength(1);
+    expect(conversions).toEqual([
+      ['event', 'conversion', { send_to: 'AW-1234567890/leadLabel01' }],
+    ]);
+    expect(JSON.stringify(gtag.mock.calls)).not.toContain('buyer@example.com');
+    expect(JSON.stringify(gtag.mock.calls)).not.toContain('2813243020');
+  });
+
+  it('does not fire an ads conversion for a malformed id or label', () => {
+    installTagConfig({
+      GOOGLE_ADS_CONVERSION_ID: 'AW-not-digits',
+      GOOGLE_ADS_CONVERSION_LABEL_LEAD: 'bad label',
+    });
+    const gtag = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: () => true });
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+
+    trackEvent('lead_captured', { source: 'contact', type: 'contact' });
+
+    expect(gtag).toHaveBeenCalledWith('event', 'generate_lead', expect.objectContaining({
+      tho_event: 'lead_captured',
+    }));
+    expect(gtag.mock.calls.filter((call) => call[1] === 'conversion')).toHaveLength(0);
+  });
+
+  it.each(['tel:+12813243020', 'tel:(281) 324-3020'])(
+    'fires one click-to-call conversion for %s',
+    (href) => {
+      installTagConfig(ADS_CONFIG);
+      const gtag = vi.fn();
+      vi.stubGlobal('navigator', { sendBeacon: () => true });
+      window.gtag = gtag;
+      window.__THO_ANALYTICS_CONSENT__ = 'granted';
+      window.history.replaceState({}, '', '/contact');
+      document.body.innerHTML = `<a href="${href}"><span>Call now</span></a>`;
+
+      const detach = attachPhoneClickTracking(document);
+      document.querySelector('span').click();
+      detach();
+
+      const calls = gtag.mock.calls.filter((call) => call[1] === 'click_to_call');
+      const conversions = gtag.mock.calls.filter((call) => call[1] === 'conversion');
+      expect(calls).toHaveLength(1);
+      expect(conversions).toHaveLength(1);
+      expect(conversions[0][2]).toEqual({ send_to: 'AW-1234567890/callLabel01' });
+      expect(JSON.stringify(gtag.mock.calls)).not.toContain('2813243020');
+      expect(JSON.stringify(gtag.mock.calls)).not.toContain('(281) 324-3020');
+    },
+  );
+
+  it('fires the thank-you page view and conversion once per submit', () => {
+    installTagConfig(ADS_CONFIG);
+    const beacon = vi.fn(() => true);
+    const gtag = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+    window.history.replaceState({}, '', '/thank-you');
+
+    consumeThankYouConversion();
+    expect(gtag).not.toHaveBeenCalled();
+
+    armThankYouConversion();
+    consumeThankYouConversion();
+    consumeThankYouConversion();
+
+    const views = gtag.mock.calls.filter((call) => call[1] === 'page_view');
+    const conversions = gtag.mock.calls.filter((call) => call[1] === 'conversion');
+    expect(views).toHaveLength(1);
+    expect(views[0][2]).toMatchObject({ page: 'thank-you', page_path: '/thank-you' });
+    expect(conversions).toEqual([
+      ['event', 'conversion', { send_to: 'AW-1234567890/thank-you' }],
+    ]);
+    expect(beacon).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem('tho_thank_you_pending')).toBeNull();
+  });
+
+  it('hashes email only after consent and sends no raw contact fields', async () => {
+    installTagConfig(ADS_CONFIG);
+    const digest = vi.fn(async (_algo, data) => {
+      const hash = createHash('sha256').update(Buffer.from(data)).digest();
+      return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength);
+    });
+    vi.stubGlobal('crypto', { subtle: { digest } });
+    const gtag = vi.fn();
+    window.gtag = gtag;
+
+    await prepareEnhancedConversion('Buyer@Example.com');
+    window.__THO_ANALYTICS_CONSENT__ = 'denied';
+    await prepareEnhancedConversion('Buyer@Example.com');
+    delete window.__THO_ANALYTICS_CONSENT__;
+    await prepareEnhancedConversion('Buyer@Example.com');
+    expect(digest).not.toHaveBeenCalled();
+    expect(gtag).not.toHaveBeenCalled();
+
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+    await prepareEnhancedConversion('  Buyer@Example.com  ');
+    await prepareEnhancedConversion('2813243020');
+    await prepareEnhancedConversion('Buyer Name');
+
+    expect(digest).toHaveBeenCalledTimes(1);
+    const encoded = new TextDecoder().decode(digest.mock.calls[0][1]);
+    expect(encoded).toBe('buyer@example.com');
+    expect(gtag).toHaveBeenCalledTimes(1);
+    expect(gtag).toHaveBeenCalledWith('set', 'user_data', {
+      sha256_email_address: sha256Hex('buyer@example.com'),
+    });
+    const sent = JSON.stringify(gtag.mock.calls);
+    expect(sent).not.toContain('Buyer@Example.com');
+    expect(sent).not.toContain('buyer@example.com');
+    expect(sent).not.toContain('2813243020');
+    expect(sent).not.toContain('Buyer Name');
+    expect(sent).not.toContain('"email"');
+    expect(sent).not.toContain('"phone"');
+    expect(sent).not.toContain('"name"');
+  });
+
+  it('does not hash when enhanced conversions are off', async () => {
+    installTagConfig({ ...ADS_CONFIG, enhanced_conversions: false });
+    const digest = vi.fn();
+    vi.stubGlobal('crypto', { subtle: { digest } });
+    window.gtag = vi.fn();
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+
+    await prepareEnhancedConversion('buyer@example.com');
+
+    expect(digest).not.toHaveBeenCalled();
+    expect(window.gtag).not.toHaveBeenCalled();
   });
 });
 

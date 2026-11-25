@@ -4,7 +4,10 @@ import { LeadCaptureForm } from '../pages/InventoryBrowse';
 import { getJourneyAttribution } from '../utils/attribution';
 
 const { analyticsTrackEvent } = vi.hoisted(() => ({ analyticsTrackEvent: vi.fn() }));
-vi.mock('../utils/analytics', () => ({ trackEvent: analyticsTrackEvent }));
+vi.mock('../utils/analytics', async () => {
+  const actual = await vi.importActual('../utils/analytics');
+  return { ...actual, trackEvent: analyticsTrackEvent };
+});
 
 // Regression guard for the silent-lead-loss bug: the quote/tour form used to
 // check only resp.ok, but the backend returns HTTP 200 {success:false} on a

@@ -712,7 +712,19 @@ def test_seo_failure_never_breaks_page_serving(monkeypatch):
 
 # ── Analytics / ad-pixel injection (opt-in, runtime env-gated) ──────────────
 
-_ANALYTICS_ENV = ("GA4_MEASUREMENT_ID", "GTM_CONTAINER_ID", "META_PIXEL_ID", "TIKTOK_PIXEL_ID")
+_ANALYTICS_ENV = (
+    "GA4_MEASUREMENT_ID",
+    "GTM_CONTAINER_ID",
+    "META_PIXEL_ID",
+    "TIKTOK_PIXEL_ID",
+    "GOOGLE_ADS_CONVERSION_ID",
+    "GOOGLE_ADS_CONVERSION_LABEL_LEAD",
+    "GOOGLE_ADS_CONVERSION_LABEL_CALL",
+    "GOOGLE_ADS_CONVERSION_LABEL_THANKYOU",
+    "THO_GA4_TAGS_ENABLED",
+    "THO_ADS_CONVERSIONS_ENABLED",
+    "THO_ENHANCED_CONVERSIONS_ENABLED",
+)
 
 
 def test_analytics_no_op_when_unconfigured(monkeypatch):
@@ -731,11 +743,16 @@ def test_ga4_loader_emitted_only_with_valid_id_and_defaults_to_denied(monkeypatc
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
     # malformed id -> treated as unset, no snippet
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "not-a-valid-id")
     assert "googletagmanager.com/gtag/js" not in client.get("/").text
-    # Valid ID -> consent bootloader is present, but the third-party script is
-    # created only after an explicit stored grant (no eager <script src>).
+    # A valid ID with the flag off does not load a tag.
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "false")
+    assert "tho-analytics-config" not in client.get("/").text
+    # Valid ID + explicit flag -> consent bootloader is present, but the
+    # third-party script is created only after an explicit stored grant.
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     body = client.get("/").text
     assert '"GA4_MEASUREMENT_ID":"G-ABC1234XYZ"' in body
     assert '<script src="/tho-analytics.js"></script>' in body
@@ -748,6 +765,7 @@ def test_ga4_loader_emitted_only_with_valid_id_and_defaults_to_denied(monkeypatc
     assert "__THO_ENABLE_ANALYTICS__" in js
     assert "__THO_ANALYTICS_CONFIGURED__=true" in js
     assert "send_page_view:false" in js
+    assert js.index("w.gtag('consent','default',denied)") < js.index("w.gtag('config'")
 
 
 def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
@@ -768,6 +786,7 @@ def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
     assert '"GTM_CONTAINER_ID":"GTM-ABC1234"' in client.get("/").text
     js = client.get("/tho-analytics.js").text
@@ -782,6 +801,7 @@ def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
     # public page DOES get the pixels...
@@ -1668,6 +1688,7 @@ def test_public_pages_emit_no_inline_executable_script_with_all_ids(monkeypatch)
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
     monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
@@ -1684,6 +1705,7 @@ def test_analytics_config_block_is_inert_json(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     body = client.get("/").text
     m = re.search(r'<script type="application/json" id="tho-analytics-config">(.*?)</script>', body)
@@ -1715,6 +1737,106 @@ def test_no_analytics_markup_when_unconfigured(monkeypatch):
     assert "/tho-analytics.js" not in body
 
 
+def _analytics_config(body: str) -> dict:
+    match = re.search(
+        r'<script type="application/json" id="tho-analytics-config">(.*?)</script>',
+        body,
+    )
+    assert match, "config data block missing"
+    return json.loads(match.group(1))
+
+
+def test_google_ids_do_not_load_tags_until_flags_are_explicitly_true(monkeypatch):
+    """Measurement and conversion IDs stay out of the page while flags are off."""
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-1234567890")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_LEAD", "leadLabel01")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_CALL", "callLabel01")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_THANKYOU", "thanksLabel1")
+    monkeypatch.setenv("THO_ENHANCED_CONVERSIONS_ENABLED", "true")
+    for flag in ("THO_GA4_TAGS_ENABLED", "THO_ADS_CONVERSIONS_ENABLED"):
+        monkeypatch.setenv(flag, "false")
+    body = client.get("/").text
+    assert "tho-analytics-config" not in body
+    assert "googletagmanager.com" not in body
+    assert "G-ABC1234XYZ" not in body
+    assert "AW-1234567890" not in body
+    assert "enhanced_conversions" not in body
+
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "1")
+    monkeypatch.setenv("THO_ADS_CONVERSIONS_ENABLED", "yes")
+    config = _analytics_config(client.get("/inventory").text)
+    assert config["GA4_MEASUREMENT_ID"] == "G-ABC1234XYZ"
+    assert "GTM_CONTAINER_ID" not in config
+    assert config["GOOGLE_ADS_CONVERSION_ID"] == "AW-1234567890"
+    assert config["GOOGLE_ADS_CONVERSION_LABEL_LEAD"] == "leadLabel01"
+    assert config["GOOGLE_ADS_CONVERSION_LABEL_CALL"] == "callLabel01"
+    assert config["GOOGLE_ADS_CONVERSION_LABEL_THANKYOU"] == "thanksLabel1"
+    assert config["enhanced_conversions"] is True
+    js = client.get("/tho-analytics.js").text
+    assert js.index("w.gtag('consent','default',denied)") < js.index("w.gtag('config'")
+    assert "ad_personalization:'denied'" in js
+
+
+def test_malformed_ads_ids_fail_closed(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_ADS_CONVERSIONS_ENABLED", "true")
+    monkeypatch.setenv("THO_ENHANCED_CONVERSIONS_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-not-digits")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_LEAD", "lead label")
+    body = client.get("/").text
+    assert "tho-analytics-config" not in body
+    assert "AW-not-digits" not in body
+    assert "enhanced_conversions" not in body
+
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-1234567890")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_LEAD", "bad label")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_LABEL_CALL", "<script>")
+    config = _analytics_config(client.get("/").text)
+    assert config == {"GOOGLE_ADS_CONVERSION_ID": "AW-1234567890", "enhanced_conversions": True}
+
+
+def test_enhanced_conversions_stay_off_without_an_ads_conversion_id(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
+    monkeypatch.setenv("THO_ENHANCED_CONVERSIONS_ENABLED", "true")
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    config = _analytics_config(client.get("/").text)
+    assert config == {"GA4_MEASUREMENT_ID": "G-ABC1234XYZ"}
+
+
+def test_thank_you_route_is_real_and_noindex(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    page = client.get("/thank-you")
+    assert page.status_code == 200
+    assert "<h1>Thank you</h1>" in page.text
+    assert 'href="tel:+12813243020"' in page.text
+    assert "(281) 324-3020" in page.text
+    assert '<meta name="robots" content="noindex" />' in page.text
+    assert 'rel="canonical"' not in page.text
+    assert "https://www.texashomeoutlet.com/thank-you" not in client.get("/sitemap.xml").text
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    assert "G-ABC1234XYZ" in client.get("/thank-you").text
+    assert "G-ABC1234XYZ" not in client.get("/crm").text
+
+    for alias in ("/thanks", "/contact/thank-you"):
+        redirect = client.get(alias, follow_redirects=False)
+        assert redirect.status_code == 301, alias
+        assert redirect.headers["location"] == "/thank-you"
+    slash = client.get("/thank-you/", follow_redirects=False)
+    assert slash.status_code == 301
+    assert slash.headers["location"] == "/thank-you"
+
+
 def test_paid_landings_emit_one_consent_gated_loader_only_with_a_valid_id(monkeypatch):
     """Homepage, inventory, and appointments share the public loader.
 
@@ -1731,6 +1853,7 @@ def test_paid_landings_emit_one_consent_gated_loader_only_with_a_valid_id(monkey
         assert "googletagmanager.com" not in body, path
         assert "__THO_ANALYTICS_CONFIGURED__" not in body, path
 
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "not-a-valid-id")
     assert "tho-analytics-config" not in client.get("/").text
 
@@ -1806,11 +1929,20 @@ function run(options) {
     getElementsByTagName() { return [{ parentNode: { insertBefore() {} } }]; },
   };
   factory(window, document);
+  const commands = (window.dataLayer || []).map((entry) => ({
+    name: entry[0],
+    action: entry[1],
+    ad_storage: entry[2] && entry[2].ad_storage,
+    analytics_storage: entry[2] && entry[2].analytics_storage,
+    ad_user_data: entry[2] && entry[2].ad_user_data,
+    ad_personalization: entry[2] && entry[2].ad_personalization,
+  }));
   return {
     href: current,
     stored: storage.has('tho_utm') ? JSON.parse(storage.get('tho_utm')) : null,
     vendor,
     consent: window.__THO_ANALYTICS_CONSENT__,
+    commands,
   };
 }
 
@@ -1832,10 +1964,12 @@ const granted = run({
 });
 process.stdout.write(JSON.stringify({
   denied_vendor: denied.vendor,
+  denied_commands: denied.commands,
   stored: denied.stored,
   denied_consent: denied.consent,
   granted_href: granted.href,
   granted_vendor: granted.vendor,
+  granted_commands: granted.commands,
 }));
 """
 
@@ -1876,6 +2010,30 @@ def test_bootstrap_captures_campaign_before_consent_and_restores_it_on_grant(mon
     gtag = report["granted_vendor"][0]
     assert gtag["src"] == "https://www.googletagmanager.com/gtag/js?id=G-ABC1234XYZ"
     assert "gclid=test-gclid-123456" in gtag["href"]
+    denied_consent = next(
+        cmd
+        for cmd in report["denied_commands"]
+        if cmd["name"] == "consent" and cmd["action"] == "default"
+    )
+    assert denied_consent == {
+        "name": "consent",
+        "action": "default",
+        "ad_storage": "denied",
+        "analytics_storage": "denied",
+        "ad_user_data": "denied",
+        "ad_personalization": "denied",
+    }
+    assert all(cmd["name"] != "config" for cmd in report["denied_commands"])
+    granted_names = [(cmd["name"], cmd["action"]) for cmd in report["granted_commands"]]
+    default_at = granted_names.index(("consent", "default"))
+    update_at = granted_names.index(("consent", "update"))
+    config_at = granted_names.index(("config", "G-ABC1234XYZ"))
+    assert default_at < update_at < config_at
+    update = report["granted_commands"][update_at]
+    assert update["ad_personalization"] == "denied"
+    assert update["ad_storage"] == "granted"
+    assert update["analytics_storage"] == "granted"
+    assert update["ad_user_data"] == "granted"
 
 
 # ── COD-153: served HTML has no inline styles (CSP style-src without 'unsafe-inline')

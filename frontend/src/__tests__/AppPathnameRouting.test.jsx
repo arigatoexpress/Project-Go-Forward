@@ -109,6 +109,18 @@ describe('App pathname-aware routing', () => {
     expect(document.querySelector('link[rel="canonical"]').getAttribute('href')).toMatch(/\/financing$/);
   });
 
+  it('opens a real thank-you page instead of a 404', async () => {
+    window.history.replaceState({}, '', '/thank-you');
+    render(<ToastProvider><App /></ToastProvider>);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Thank you' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /wandered off the lot/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Call (281) 324-3020' })).toHaveAttribute('href', 'tel:+12813243020');
+    expect(document.title).toBe('Thank you | Texas Home Outlet');
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('noindex');
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+  });
+
   it('opens staff sign-in for /ad-studio instead of a 404', async () => {
     window.history.replaceState({}, '', '/ad-studio');
     render(<ToastProvider><App /></ToastProvider>);

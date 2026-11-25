@@ -33,24 +33,69 @@ and budgets.
 
 - Consent is first-party and defaults to denied. Third-party JavaScript is not
   downloaded before an explicit grant.
-- GA4/GTM is runtime-gated by exactly one of `GA4_MEASUREMENT_ID` or
-  `GTM_CONTAINER_ID`. The public homepage, `/inventory`, and `/appointments`
-  emit the consent-gated loader only when that value matches the format below.
-  If neither variable is set, or the value is blank or malformed, the HTML
-  contains no Google tag, no `gtag` snippet, and no `tho-analytics-config`
-  block. Do not invent or hardcode an ID.
-  - `GA4_MEASUREMENT_ID`: `G-` plus 4 to 15 uppercase letters or digits.
+- Consent Mode v2 is set before any `gtag('config')`. The default for
+  `ad_storage`, `analytics_storage`, `ad_user_data`, and `ad_personalization`
+  is `denied`. A grant updates the first three to `granted`. `ad_personalization`
+  stays `denied` after consent because Texas Home Outlet is a housing
+  advertiser.
+- Pasting a measurement or conversion ID does not load a Google tag. Each flag defaults to
+  false / unset, and only an explicit `true`, `1`, `yes`, or `on` turns that
+  tag on. A blank, `false`, or malformed ID still emits nothing.
+
+  | What the owner pastes | Env / secret name | Format |
+  |---|---|---|
+  | GA4 measurement ID | `GA4_MEASUREMENT_ID` | `G-` plus 4–15 uppercase letters or digits |
+  | Google Ads conversion ID | `GOOGLE_ADS_CONVERSION_ID` | `AW-` followed by 4–20 digits |
+  | Lead form conversion label | `GOOGLE_ADS_CONVERSION_LABEL_LEAD` | Ads UI label for the lead-submit conversion |
+  | Click-to-call conversion label | `GOOGLE_ADS_CONVERSION_LABEL_CALL` | Ads UI label for the call conversion |
+  | Thank-you page conversion label | `GOOGLE_ADS_CONVERSION_LABEL_THANKYOU` | Ads UI label for the thank-you conversion |
+
+  Flags, default false:
+
+  | Flag | What it gates |
+  |---|---|
+  | `THO_GA4_TAGS_ENABLED` | GA4 / GTM loader |
+  | `THO_ADS_CONVERSIONS_ENABLED` | Ads conversion ID, labels, and conversion events |
+  | `THO_ENHANCED_CONVERSIONS_ENABLED` | SHA-256 email hash on a consented Ads conversion |
+
+- GA4/GTM still needs exactly one of `GA4_MEASUREMENT_ID` or
+  `GTM_CONTAINER_ID`, and `THO_GA4_TAGS_ENABLED=true`. The public homepage,
+  `/inventory`, `/appointments`, and the noindex `/thank-you` page emit the
+  consent-gated loader only when that flag is on and the value matches the
+  format above. If the flag is off, or neither variable is set, or the value
+  is blank or malformed, the HTML contains no Google tag, no `gtag` snippet,
+  and no Google ID in `tho-analytics-config`. Do not invent or hardcode an ID.
   - `GTM_CONTAINER_ID`: `GTM-` plus 4 to 10 uppercase letters or digits.
-  - If both are valid, the page loads only `GA4_MEASUREMENT_ID`. Readiness
-    still expects exactly one of the two names on the service.
+  - If both GA4 and GTM are valid, the page loads only `GA4_MEASUREMENT_ID`.
+    Readiness still expects exactly one of the two names on the service.
+- `THO_ADS_CONVERSIONS_ENABLED=true` plus a valid `GOOGLE_ADS_CONVERSION_ID`
+  loads the Ads tag and allows three consented conversion events. Each label
+  is optional; a missing or malformed label means that one conversion does
+  not fire.
+  - Lead form submit keeps the existing single `generate_lead` and, when the
+    lead label is valid, one Ads conversion.
+  - Click-to-call fires `click_to_call` and the call conversion once per
+    public `tel:` click, including `(281) 324-3020` and `+12813243020`. The
+    phone number is not included in the event.
+  - `/thank-you` is a real noindex route. `/thanks` and `/contact/thank-you`
+    redirect there. A successful contact, inventory, or chat lead submit
+    opens it and fires one page view plus the thank-you conversion. A refresh
+    or a direct visit does not fire them again.
+- Enhanced conversions send a SHA-256 hash of the trimmed, lowercased email
+  and nothing else. The hash is computed only when
+  `THO_ENHANCED_CONVERSIONS_ENABLED` is true, a valid Ads conversion ID is
+  configured, and the visitor has granted consent. Denied or missing consent
+  does not hash and does not send. Raw email, phone, and name are never sent
+  to Google.
 - Public SPA navigation emits `page_view`; contact/quote/tour capture emits
   `generate_lead`; completed booking emits `schedule_appointment`. After
   consent, those Google events include the landing `utm_*` values and click
   IDs. `page_location` keeps the landing query when a later in-app navigation
   has dropped it.
 - Analytics forwarding strips name, email, phone, address, message, notes,
-  referrer, and lead/session identifiers. The first-party Firestore event sink
-  remains the durable source even when analytics is declined or unavailable.
+  referrer, and lead/session identifiers. The first-party `/api/analytics`
+  sink remains the durable source even when analytics is declined or
+  unavailable. Do not replace it with the Google tags.
 - `gclid`, `gbraid`, and `wbraid` use strict formats. They are stored with the
   journey on the lead and on the `lead_captured` / `appointment_booked` events
   when the visitor submits. Contact PII is not copied onto those events. The
@@ -363,21 +408,35 @@ itself.
 
 1. Review the in-product privacy copy and the account's GA4 data-retention and
    ad-personalization settings.
-2. Choose one primary loader and set that Cloud Run runtime env var:
-   `GA4_MEASUREMENT_ID`, or `GTM_CONTAINER_ID` whose published container owns
-   GA4. Do not configure both. Unset and malformed values leave the public
-   homepage, `/inventory`, and `/appointments` without a Google loader. The
-   formats are `G-` plus 4–15 uppercase letters or digits, and `GTM-` plus
-   4–10 uppercase letters or digits. Do not paste a guessed ID into source.
-3. Deploy the ID to a zero-traffic candidate, accept analytics in a clean
+2. Choose one primary loader. Set `THO_GA4_TAGS_ENABLED=true` and exactly one
+   of `GA4_MEASUREMENT_ID` or `GTM_CONTAINER_ID` whose published container owns
+   GA4. Do not configure both IDs. Leave the flag unset to keep tags off even
+   if an ID is already present. Unset and malformed values leave the public
+   homepage, `/inventory`, `/appointments`, and `/thank-you` without a Google
+   loader. The formats are `G-` plus 4–15 uppercase letters or digits, and
+   `GTM-` plus 4–10 uppercase letters or digits. Do not paste a guessed ID
+   into source.
+3. For Ads conversions, set `THO_ADS_CONVERSIONS_ENABLED=true`,
+   `GOOGLE_ADS_CONVERSION_ID` (`AW-` plus 4–20 digits), and the lead, call,
+   and thank-you labels from the Ads UI. Set
+   `THO_ENHANCED_CONVERSIONS_ENABLED=true` only when a consented SHA-256 email
+   hash should be attached. Do not put raw email, phone, or name in the tag.
+   Paste the values into Cloud Run env or Secret Manager. Do not commit them.
+4. Deploy the ID to a zero-traffic candidate, accept analytics in a clean
    browser profile, and verify exactly one each of:
    - `page_view`
-   - `generate_lead`
+   - `generate_lead` on a lead form submit
+   - `click_to_call` on a `tel:` click, including `(281) 324-3020` /
+     `+12813243020`
+   - one thank-you page view and thank-you conversion after a successful
+     submit, and no second fire on refresh
    - `schedule_appointment`
-4. Decline analytics in another clean profile and verify no third-party script
-   request is made while `/api/analytics` still records the first-party event.
-5. Mark `generate_lead` and `schedule_appointment` as GA4 key events. Link GA4
-   to Google Ads and import both conversion actions.
+5. Decline analytics in another clean profile and verify no third-party script
+   request is made, no email hash is computed, and `/api/analytics` still
+   records the first-party event.
+6. Mark `generate_lead` and `schedule_appointment` as GA4 key events. Link GA4
+   to Google Ads and import the lead, call, and thank-you conversion actions.
+   Import does not authorize spend.
 
 ## Phase D — SEO properties
 

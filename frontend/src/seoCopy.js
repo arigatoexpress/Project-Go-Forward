@@ -169,6 +169,9 @@ export function listingMetaDescription(modelName, bits) {
 }
 
 export const PUBLIC_DESCRIPTIONS = {
+  'thank-you':
+    `We received your request. ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE} will follow up. `
+    + `Call ${BUSINESS_PHONE}.`,
   contact:
     `Visit ${BUSINESS_NAME}, ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE}. `
     + 'Hours: Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed.',

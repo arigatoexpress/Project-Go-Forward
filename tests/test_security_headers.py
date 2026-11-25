@@ -25,7 +25,19 @@ _BASELINE_CSP = (
 )
 _HSTS = "max-age=63072000; includeSubDomains; preload"
 
-_ANALYTICS_ENV = ("GA4_MEASUREMENT_ID", "GTM_CONTAINER_ID", "META_PIXEL_ID", "TIKTOK_PIXEL_ID")
+_ANALYTICS_ENV = (
+    "GA4_MEASUREMENT_ID",
+    "GTM_CONTAINER_ID",
+    "META_PIXEL_ID",
+    "TIKTOK_PIXEL_ID",
+    "GOOGLE_ADS_CONVERSION_ID",
+    "GOOGLE_ADS_CONVERSION_LABEL_LEAD",
+    "GOOGLE_ADS_CONVERSION_LABEL_CALL",
+    "GOOGLE_ADS_CONVERSION_LABEL_THANKYOU",
+    "THO_GA4_TAGS_ENABLED",
+    "THO_ADS_CONVERSIONS_ENABLED",
+    "THO_ENHANCED_CONVERSIONS_ENABLED",
+)
 
 
 def _csp(client):
@@ -51,6 +63,7 @@ def test_csp_widens_only_for_configured_ga4(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, *_ = create_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     csp = _csp(client)
     assert "https://www.googletagmanager.com" in csp
@@ -58,6 +71,32 @@ def test_csp_widens_only_for_configured_ga4(monkeypatch):
     # unconfigured vendors must NOT be added
     assert "facebook" not in csp
     assert "tiktok" not in csp
+
+
+def test_csp_unchanged_when_google_ids_are_set_and_flags_are_off(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-1234567890")
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "0")
+    monkeypatch.setenv("THO_ADS_CONVERSIONS_ENABLED", "no")
+    assert _csp(client) == _BASELINE_CSP
+
+
+def test_csp_widens_for_ads_only_when_the_flag_and_id_are_valid(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    monkeypatch.setenv("THO_ADS_CONVERSIONS_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-abc")
+    assert _csp(client) == _BASELINE_CSP
+    monkeypatch.setenv("GOOGLE_ADS_CONVERSION_ID", "AW-1234567890")
+    csp = _csp(client)
+    assert "https://www.googletagmanager.com" in csp
+    assert "https://www.googleadservices.com" in csp
+    assert "https://googleads.g.doubleclick.net" in csp
+    assert "facebook" not in csp
 
 
 def test_csp_widens_for_meta_and_tiktok(monkeypatch):
@@ -180,6 +219,7 @@ def test_style_src_unchanged_when_analytics_widens_script_src(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, *_ = create_client(monkeypatch)
+    monkeypatch.setenv("THO_GA4_TAGS_ENABLED", "true")
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     style_src = _directive(_csp(client), "style-src")
     assert style_src == "style-src 'self' https://fonts.googleapis.com"

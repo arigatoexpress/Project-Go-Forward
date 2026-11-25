@@ -8,7 +8,19 @@ const GOOGLE_EVENT_NAMES = {
   lead_captured: 'generate_lead',
   appointment_booked: 'schedule_appointment',
   page_viewed: 'page_view',
+  phone_clicked: 'click_to_call',
 };
+
+const ADS_CONVERSION_LABELS = {
+  lead_captured: 'GOOGLE_ADS_CONVERSION_LABEL_LEAD',
+  phone_clicked: 'GOOGLE_ADS_CONVERSION_LABEL_CALL',
+  thank_you_viewed: 'GOOGLE_ADS_CONVERSION_LABEL_THANKYOU',
+};
+
+const ADS_ID_RE = /^AW-\d{4,20}$/;
+const ADS_LABEL_RE = /^[A-Za-z0-9_-]{1,80}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const THANK_YOU_KEY = 'tho_thank_you_pending';
 
 const PII_KEYS = new Set([
   'name', 'email', 'phone', 'address', 'message', 'notes',
@@ -22,6 +34,90 @@ const PUBLIC_EXACT_PATHS = new Set([
   '/', '/inventory', '/locations', '/chat', '/contact', '/appointments', '/about',
   '/financing', '/faq', '/warranty', '/delivery',
 ]);
+
+function readTagConfig() {
+  if (typeof document === 'undefined') return {};
+  try {
+    const el = document.getElementById('tho-analytics-config');
+    if (!el) return {};
+    const parsed = JSON.parse(el.textContent || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function fireAdsConversion(event) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (window.__THO_ANALYTICS_CONSENT__ !== 'granted' || typeof window.gtag !== 'function') return;
+    const labelKey = ADS_CONVERSION_LABELS[event];
+    if (!labelKey) return;
+    const config = readTagConfig();
+    const id = config.GOOGLE_ADS_CONVERSION_ID;
+    const label = config[labelKey];
+    if (typeof id !== 'string' || !ADS_ID_RE.test(id)) return;
+    if (typeof label !== 'string' || !ADS_LABEL_RE.test(label)) return;
+    window.gtag('event', 'conversion', { send_to: `${id}/${label}` });
+  } catch {
+    // Ads attribution is strictly best-effort.
+  }
+}
+
+function bytesToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * SHA-256 the normalized email and attach only that hash to Google Ads.
+ * Consent, the enhanced-conversions flag, and a real email are all required
+ * before any hash is computed. Raw email, phone, and name are never sent.
+ */
+export async function prepareEnhancedConversion(email) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (window.__THO_ANALYTICS_CONSENT__ !== 'granted') return;
+    if (readTagConfig().enhanced_conversions !== true) return;
+    if (typeof window.gtag !== 'function') return;
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(normalized)) return;
+    const subtle = window.crypto?.subtle;
+    if (!subtle?.digest) return;
+    const digest = await subtle.digest('SHA-256', new TextEncoder().encode(normalized));
+    const hash = bytesToHex(digest);
+    if (!/^[a-f0-9]{64}$/.test(hash)) return;
+    window.gtag('set', 'user_data', { sha256_email_address: hash });
+  } catch {
+    // A hashing failure must not block the lead or send the raw address.
+  }
+}
+
+export function armThankYouConversion() {
+  try {
+    sessionStorage.setItem(THANK_YOU_KEY, '1');
+  } catch {
+    // The thank-you page simply will not fire without the one-shot token.
+  }
+}
+
+/**
+ * Fire the thank-you page view and Ads conversion once for a successful submit.
+ * A refresh or a direct visit has no token, so it does not fire again.
+ */
+export function consumeThankYouConversion() {
+  let pending = false;
+  try {
+    pending = sessionStorage.getItem(THANK_YOU_KEY) === '1';
+    if (pending) sessionStorage.removeItem(THANK_YOU_KEY);
+  } catch {
+    return;
+  }
+  if (!pending) return;
+  trackEvent('page_viewed', { page: 'thank-you', page_path: '/thank-you' });
+  fireAdsConversion('thank_you_viewed');
+}
 
 export function isPublicAnalyticsPath(pathname) {
   const raw = String(pathname || '/').toLowerCase();
@@ -106,6 +202,7 @@ export function trackEvent(event, data = {}) {
         GOOGLE_EVENT_NAMES[event] || event,
         googleEventParams(event, { ...data, ...campaign }),
       );
+      if (ADS_CONVERSION_LABELS[event]) fireAdsConversion(event);
     }
   } catch {
     // Third-party attribution is strictly best-effort.
