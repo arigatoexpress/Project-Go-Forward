@@ -87,6 +87,11 @@ class FakeLead:
     first_contacted_by: str | None = None
     status_changed_at: str | None = None
     status_changed_by: str | None = None
+    first_contact_outcome: str | None = None
+    last_contact_outcome: str | None = None
+    last_contact_at: str | None = None
+    last_contact_by: str | None = None
+    contact_attempts: int = 0
 
     # Triage / routing fields
     priority: str | None = None
@@ -161,6 +166,11 @@ class FakeLead:
             "first_contacted_by": self.first_contacted_by,
             "status_changed_at": self.status_changed_at,
             "status_changed_by": self.status_changed_by,
+            "first_contact_outcome": self.first_contact_outcome,
+            "last_contact_outcome": self.last_contact_outcome,
+            "last_contact_at": self.last_contact_at,
+            "last_contact_by": self.last_contact_by,
+            "contact_attempts": self.contact_attempts,
             "priority": self.priority,
             "assigned_to": self.assigned_to,
             "triage_notes": self.triage_notes,
@@ -528,6 +538,25 @@ class FakeLeadManager:
             lead.first_contacted_at = now
             lead.first_contacted_by = actor
         return lead, previous, True
+
+    async def log_contact_outcome(self, lead_id: str, outcome: str, *, actor: str):
+        # load_app() swaps lead_management for a stub, so load the real rules
+        # from the file to keep this fake honest.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_real_lead_management", Path(__file__).resolve().parent.parent / "lead_management.py"
+        )
+        real = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(real)
+        apply_contact_outcome = real.apply_contact_outcome
+
+        lead = await self.get_lead(lead_id)
+        if lead is None:
+            return None, None, False
+        previous = lead.status
+        recorded = apply_contact_outcome(lead, outcome, actor=actor)
+        return lead, previous, recorded
 
     async def get_lead(self, lead_id: str):
         def _get():

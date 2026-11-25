@@ -8125,6 +8125,53 @@ async def transition_lead_lifecycle_api(lead_id: str, request: Request):
         return {"success": False, "error": "Failed to update lead status. Please try again."}
 
 
+# Mirrors lead_management.CONTACT_OUTCOMES (a test keeps them equal).
+LEAD_CONTACT_OUTCOMES = frozenset({"called", "texted", "emailed", "left_voicemail", "no_answer"})
+
+
+@app.post("/api/leads/{lead_id}/contact-log", dependencies=[Depends(require_admin)])
+async def log_lead_contact_api(lead_id: str, request: Request):
+    """One-tap "log first contact" from the staff queue (COD-254).
+
+    Payload is exactly ``{"outcome": <called|texted|emailed|left_voicemail|no_answer>}``.
+    The first attempt sets the immutable response clock; reached outcomes move
+    a new lead to contacted. A double-tap within a few seconds is a no-op.
+    """
+    try:
+        data = await request.json()
+        if not isinstance(data, dict) or set(data) != {"outcome"}:
+            raise HTTPException(status_code=400, detail="Payload must contain only outcome.")
+        outcome = data.get("outcome")
+        if not isinstance(outcome, str) or outcome not in LEAD_CONTACT_OUTCOMES:
+            raise HTTPException(status_code=400, detail="Unknown contact outcome.")
+        actor = _audit_actor(request)
+        lead, previous_status, recorded = await lead_manager.log_contact_outcome(
+            lead_id, outcome, actor=actor
+        )
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        log_admin_action(
+            actor=actor,
+            action="lead.contact_logged",
+            target_type="lead",
+            target_id=str(lead_id),
+            details={
+                "outcome": outcome,
+                "from_status": previous_status,
+                "to_status": lead.status,
+                "recorded": recorded,
+                "attempts": int(getattr(lead, "contact_attempts", 0) or 0),
+            },
+            request=request,
+        )
+        return {"success": True, "recorded": recorded, "lead": lead.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        struct_logger.error("Lead contact log failed", error=str(e))
+        return {"success": False, "error": "That was not saved. Please try again."}
+
+
 @app.get("/api/crm/appointments", dependencies=[Depends(require_admin)])
 async def list_appointments_api(status: str = None, limit: int = 100):
     """List appointments for CRM dashboard."""
