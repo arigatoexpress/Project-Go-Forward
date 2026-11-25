@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArchiveRestore, CalendarClock, Check, Mail, Phone, TimerReset } from 'lucide-react';
+import {
+  ArchiveRestore, CalendarClock, Check, Mail, MessageSquare, Phone, TimerReset, UserRound,
+} from 'lucide-react';
 import { leadInterestLine } from '../utils/leadInterest';
 
 const RESPONSE_TARGET_MINUTES = 15;
@@ -26,6 +28,37 @@ const RESPONSE_STATES = {
     rank: 2,
   },
 };
+
+// One tap after each call or text (COD-254). Reached outcomes mark the person
+// answered; voicemail and no answer keep them on this list for another try.
+export const CONTACT_OUTCOMES = [
+  { value: 'called', label: 'Called', reached: true },
+  { value: 'texted', label: 'Texted', reached: true },
+  { value: 'emailed', label: 'Emailed', reached: true },
+  { value: 'left_voicemail', label: 'Left voicemail', reached: false },
+  { value: 'no_answer', label: 'No answer', reached: false },
+];
+
+const OUTCOME_LABELS = Object.fromEntries(CONTACT_OUTCOMES.map((o) => [o.value, o.label]));
+
+export function contactAttemptLine(lead, now = new Date()) {
+  const attempts = Number(lead?.contact_attempts || 0);
+  if (!attempts) return '';
+  const label = OUTCOME_LABELS[lead.last_contact_outcome] || 'Contact logged';
+  const at = parseLeadCreatedAt(lead.last_contact_at);
+  let ago = '';
+  if (!Number.isNaN(at.getTime())) {
+    const minutes = Math.max(0, Math.floor((now.getTime() - at.getTime()) / 60000));
+    ago = minutes < 1 ? ' just now' : minutes < 60 ? ` ${minutes}m ago`
+      : minutes < 1440 ? ` ${Math.floor(minutes / 60)}h ago` : ` ${Math.floor(minutes / 1440)}d ago`;
+  }
+  return `Tried ${attempts}× · last: ${label}${ago}`;
+}
+
+export function smsHref(phone) {
+  const digits = String(phone || '').replace(/[^\d+]/g, '');
+  return digits ? `sms:${digits}` : '';
+}
 
 export function parseLeadCreatedAt(value) {
   const timestamp = String(value || '').trim();
@@ -127,10 +160,13 @@ export function starterReply(lead) {
 }
 
 function LeadRow({
-  lead, busy, answering, reply, sending, onOpen, onMarkContacted, onStartAnswer, onReplyChange, onSendReply,
+  lead, busy, answering, reply, sending, onOpen, onMarkContacted, onLogContact, onStartAnswer, onReplyChange,
+  onSendReply, now,
 }) {
   const state = lead.responseState;
   const who = lead.name || 'this person';
+  const attemptLine = contactAttemptLine(lead, now);
+  const textLink = smsHref(lead.phone);
   return (
     <article className="relative px-4 py-4 sm:px-5">
       <span
@@ -163,6 +199,14 @@ function LeadRow({
           </div>
           <p className="mt-1 mb-0 text-base text-slate-700">{intentLabel(lead)}</p>
           <p className="mt-1 mb-0 text-base font-semibold text-slate-800">{leadInterestLine(lead)}</p>
+          {attemptLine && (
+            <p data-testid="contact-attempts" className="mt-1 mb-0 text-base font-semibold text-amber-800">{attemptLine}</p>
+          )}
+          {lead.assigned_to && (
+            <p className="mt-1 mb-0 inline-flex items-center gap-1 text-sm text-slate-600">
+              <UserRound size={15} aria-hidden="true" /> Assigned to {lead.assigned_to}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -173,6 +217,15 @@ function LeadRow({
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-base font-bold text-white no-underline shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <Phone size={18} aria-hidden="true" /> Call
+            </a>
+          )}
+          {onLogContact && textLink && (
+            <a
+              href={textLink}
+              aria-label={`Text ${lead.name || 'lead'}`}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-base font-bold text-slate-800 no-underline hover:bg-slate-50"
+            >
+              <MessageSquare size={18} aria-hidden="true" /> Text
             </a>
           )}
           {lead.email && (
@@ -195,16 +248,42 @@ function LeadRow({
               {answering ? 'Reply is open' : 'Write a reply'}
             </button>
           )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onMarkContacted(lead)}
-            aria-label={`Mark ${lead.name || 'lead'} contacted`}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 text-base font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-          >
-            <Check size={18} aria-hidden="true" /> {busy ? 'Saving…' : 'I already talked to them'}
-          </button>
+          {!onLogContact && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onMarkContacted(lead)}
+              aria-label={`Mark ${lead.name || 'lead'} contacted`}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 text-base font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+            >
+              <Check size={18} aria-hidden="true" /> {busy ? 'Saving…' : 'I already talked to them'}
+            </button>
+          )}
         </div>
+
+        {onLogContact && (
+          <div role="group" aria-label={`Log contact with ${who}`} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+            <p className="m-0 mb-2 text-base font-bold text-emerald-900">
+              {busy ? 'Saving…' : 'After you call or text, tap what happened:'}
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {CONTACT_OUTCOMES.map((outcome) => (
+                <button
+                  key={outcome.value}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onLogContact(lead, outcome)}
+                  aria-label={`${outcome.label}: ${who}`}
+                  className={`inline-flex min-h-12 items-center justify-center rounded-lg border px-3 text-base font-bold disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${outcome.reached
+                    ? 'border-emerald-400 bg-white text-emerald-900 hover:bg-emerald-100'
+                    : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'}`}
+                >
+                  {outcome.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {answering && lead.email && (
           <form
@@ -239,7 +318,9 @@ function LeadRow({
   );
 }
 
-export default function LeadResponseQueue({ leads, onOpen, onMarkContacted, onSendReply }) {
+export default function LeadResponseQueue({
+  leads, onOpen, onMarkContacted, onLogContact, onSendReply,
+}) {
   const [updatingId, setUpdatingId] = useState('');
   const [answerId, setAnswerId] = useState('');
   const [reply, setReply] = useState('');
@@ -275,6 +356,28 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted, onSe
     }
   };
 
+  const logContact = async (lead, outcome) => {
+    setUpdatingId(lead.lead_id);
+    setAnswerError('');
+    setNotice('');
+    try {
+      const saved = await onLogContact(lead.lead_id, outcome.value);
+      if (saved === false) {
+        setAnswerError('That was not saved. Tap it again.');
+        return;
+      }
+      const who = lead.name || 'This person';
+      setNotice(outcome.reached
+        ? `Saved: ${outcome.label.toLowerCase()}. ${who} is marked as answered.`
+        : `Saved: ${outcome.label.toLowerCase()}. ${who} stays on this list so you can try again.`);
+      if (outcome.reached && answerId === lead.lead_id) setAnswerId('');
+    } catch {
+      setAnswerError('That was not saved. Check the connection and tap it again.');
+    } finally {
+      setUpdatingId('');
+    }
+  };
+
   const sendReply = async (lead) => {
     if (!reply.trim()) {
       setAnswerError('Type a short note before sending.');
@@ -296,7 +399,9 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted, onSe
         setAnswerError('The reply did not send. Nothing was marked answered. Try again, or call them.');
         return;
       }
-      const saved = await onMarkContacted?.(lead.lead_id);
+      const saved = onLogContact
+        ? await onLogContact(lead.lead_id, 'emailed')
+        : await onMarkContacted?.(lead.lead_id);
       if (saved === false) {
         setNotice('The reply was sent, but the list still shows them as waiting. Tap “I already talked to them”.');
         return;
@@ -324,7 +429,9 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted, onSe
   const rowProps = {
     onOpen,
     onMarkContacted: markContacted,
+    onLogContact: onLogContact ? logContact : undefined,
     onStartAnswer: startAnswer,
+    now,
     onReplyChange: setReply,
     onSendReply: sendReply,
     reply,

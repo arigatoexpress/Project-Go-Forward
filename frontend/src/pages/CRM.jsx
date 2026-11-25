@@ -75,6 +75,19 @@ export async function submitLeadLifecycleTransition(fetcher, leadId, status) {
   return data.lead;
 }
 
+export async function submitLeadContactLog(fetcher, leadId, outcome) {
+  const res = await fetcher(`/api/leads/${leadId}/contact-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success || !data.lead) {
+    throw new Error(data.detail || data.message || data.error || `Contact log failed (${res.status})`);
+  }
+  return data.lead;
+}
+
 // ─── Copy-to-clipboard button ───
 // Copies `value` and flashes a brief "Copied" state. stopPropagation keeps the
 // click from triggering an enclosing row's open-detail handler.
@@ -277,6 +290,20 @@ export default function CRM({ onBack }) {
     } catch (err) {
       console.error('Lead status update failed:', err);
       setActionError(safeUserMessage(err.message, 'That was not saved. Check the internet connection and try again.'));
+      return false;
+    }
+  };
+
+  const handleLogLeadContact = async (leadId, outcome) => {
+    setActionError('');
+    setActionNotice('');
+    try {
+      const updatedLead = await submitLeadContactLog(adminFetch, leadId, outcome);
+      setLeads(prev => prev.map(l => l.lead_id === leadId ? updatedLead : l));
+      if (selectedLead?.lead_id === leadId) setSelectedLead(updatedLead);
+      return true;
+    } catch (err) {
+      console.error('Lead contact log failed:', err);
       return false;
     }
   };
@@ -619,6 +646,7 @@ export default function CRM({ onBack }) {
                 leads={leads}
                 onOpen={setSelectedLead}
                 onMarkContacted={(leadId) => handleUpdateLeadStatus(leadId, 'contacted')}
+                onLogContact={handleLogLeadContact}
                 onSendReply={handleSendLeadReply}
               />
             )}
