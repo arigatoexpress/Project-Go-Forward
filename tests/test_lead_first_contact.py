@@ -257,5 +257,8 @@ def test_sla_sql_alerts_by_raising_and_stays_pii_free():
     sql = (REPO / "ops" / "lead_sla" / "lead_sla_daily.sql").read_text()
     assert "LEAD_SLA_BREACH" in sql and "ERROR(" in sql
     assert "tho_analytics.leads" in sql
+    # Freshness comes from table metadata, not MAX(updated_at): a quiet week of no
+    # lead edits must not look like a stale mirror and page the owner.
+    assert "__TABLES__" in sql and "MAX(updated_at)" not in sql
     for column in ("name", "email", "phone"):
         assert f" {column}," not in sql.lower() and f".{column}" not in sql.lower()

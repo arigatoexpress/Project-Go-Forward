@@ -28,12 +28,17 @@ SET (breach_count, unassigned_count, over_24h_count, oldest_hours, mirror_age_ho
     COUNTIF(waiting AND (assigned_to IS NULL OR TRIM(assigned_to) = '')),
     COUNTIF(waiting AND created_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)),
     IFNULL(MAX(IF(waiting, TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, HOUR), NULL)), 0),
-    IFNULL(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(updated_at), HOUR), 9999)
+    -- Mirror freshness = when tho-leads-bq last rewrote the table (metadata, free),
+    -- not the newest lead update, so a quiet week does not look like a stale mirror.
+    IFNULL((
+      SELECT TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), TIMESTAMP_MILLIS(last_modified_time), HOUR)
+      FROM `tho-ai-agent.tho_analytics.__TABLES__`
+      WHERE table_id = 'leads'
+    ), 9999)
   FROM (
     SELECT
       assigned_to,
       created_at,
-      updated_at,
       (has_phone OR has_email)
         AND status = 'new'
         AND first_contacted_at IS NULL
